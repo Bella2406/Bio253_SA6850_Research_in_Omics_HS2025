@@ -340,12 +340,12 @@ features_in_top10_bins_genes <- find_overlapping_features(my_top_10_bins, mygffd
 SpacingCutoff <- 10000  # 10kb
 
 methylation_withDiffs <- methylation_data_with_diff %>%
-    arrange(desc(diff)) %>%
-    mutate(hypoMethRegion_end = start + diff)
+    arrange(desc(diff_to_next_site)) %>%
+    mutate(hypoMethRegion_end = start + diff_to_next_site)
 
 largest_diff_AllStrand_ofInterest <- methylation_withDiffs %>%
-    filter(diff > SpacingCutoff) %>%
-    select(start, hypoMethRegion_end, diff, strand, feature)
+    filter(diff_to_next_site > SpacingCutoff) %>%
+    select(start, hypoMethRegion_end, diff_to_next_site, strand, feature)
 
 
 # Find genes overlapping with hypo-methylated regions
