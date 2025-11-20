@@ -3,8 +3,7 @@ In this repository we share analysis scripts for the analysis of SA6850 data in 
 
 We started in the course today.
 
-Hello
-Does this work
+yesss
 
 
 
