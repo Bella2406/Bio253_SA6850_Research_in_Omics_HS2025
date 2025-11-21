@@ -121,9 +121,13 @@ genome_length
 # N = any base
 
 # CHANGE THIS TO YOUR DESIRED MOTIF:
-motif_pattern <- "RVANNNNNNNTBY"
+# motif_pattern <- "RVANNNNNNNTBY"
 # motif_pattern <- "ANNNNNNNT"
 # motif_pattern <- "RNANNNNNNTNC"
+
+# upstream + motif
+motif_pattern <- "DDNNNNNNRRVANNNNNNNTBYNHD"
+
 
 # For your second analysis, change it to:
 # motif_pattern <- "RVANNNNNNTHC"
@@ -133,7 +137,7 @@ motif_pattern <- "RVANNNNNNNTBY"
 # For ANNNNNNT, if methylation is on the A, set to 1
 # If it's after 4 bases, set to 4, etc.
 # methylation_offset <- 3  # Adjust based on your motif
-methylation_offset <- 3  # Adjust based on your motif
+methylation_offset <- 13  # Adjust based on your motif
 
 # Matching tolerance for position matching (bp)
 position_tolerance <- 0
@@ -533,6 +537,211 @@ if (total_motifs > 0 && methylated_motifs > 0) {
 
     cat("Density overlay plots generated!\n")
 }
+
+
+# ============================================================================
+# 6C. DENSITY OVERLAY PLOTS with percentage LINE
+# ============================================================================
+
+if (total_motifs > 0 && methylated_motifs > 0) {
+    cat("\n=== GENERATING DENSITY OVERLAY PLOTS ===\n")
+
+    # Prepare data for density plots
+    # Methylation marks
+    meth_plus <- meth_data %>% filter(strand == "+")
+    meth_minus <- meth_data %>% filter(strand == "-")
+
+    # Motif occurrences
+    motif_plus <- all_motifs %>% filter(strand == "+")
+    motif_minus <- all_motifs %>% filter(strand == "-")
+
+    # Calculate bin width for histogram (adjust this for your genome size)
+    # For a ~3Mb genome, 5kb bins give good resolution
+    bin_width <- 5000
+
+    # Calculate methylation percentage in bins for each strand
+    # Function to calculate methylation percentage in bins
+    calc_meth_percentage <- function(motifs_df, bin_size, genome_len) {
+        # Create bins - extend slightly beyond genome length to catch edge cases
+        bins <- seq(0, genome_len + bin_size, by = bin_size)
+
+        # Calculate for each bin
+        bin_stats <- data.frame()
+
+        for (i in 1:(length(bins)-1)) {
+            bin_start <- bins[i]
+            bin_end <- bins[i+1]
+
+            # Get motifs in this bin
+            motifs_in_bin <- motifs_df %>%
+                filter(position >= bin_start & position < bin_end)
+
+            if (nrow(motifs_in_bin) > 0) {
+                meth_pct <- (sum(motifs_in_bin$is_methylated) / nrow(motifs_in_bin)) * 100
+                bin_stats <- rbind(bin_stats, data.frame(
+                    bin_start = bin_start,
+                    bin_mid = (bin_start + bin_end) / 2,
+                    bin_end = bin_end,
+                    meth_percentage = meth_pct,
+                    n_motifs = nrow(motifs_in_bin)
+                ))
+            }
+        }
+        return(bin_stats)
+    }
+
+    # Calculate methylation percentages for each strand
+    plus_meth_pct <- calc_meth_percentage(motif_plus, bin_width, genome_length)
+    minus_meth_pct <- calc_meth_percentage(motif_minus, bin_width, genome_length)
+
+    # Create density overlay for + strand using histograms for high resolution
+    # First, find the max count for the histograms to scale the percentage line
+    # Make sure breaks extend beyond the data range
+    breaks_seq <- seq(0, genome_length + bin_width, by = bin_width)
+    max_count_plus <- max(c(
+        hist(motif_plus$position, breaks = breaks_seq, plot = FALSE)$counts,
+        hist(meth_plus$start, breaks = breaks_seq, plot = FALSE)$counts
+    ))
+
+    # Offset to lift the line above the histograms (as fraction of max height)
+    line_offset <- 0.15  # Line will start 15% above the max histogram height
+
+    p5 <- ggplot() +
+        # Motif histogram (background)
+        geom_histogram(data = motif_plus,
+                       aes(x = position, y = after_stat(count),
+                           fill = "Motif occurrences"),
+                       alpha = 0.4, binwidth = bin_width, position = "identity") +
+        # Methylation histogram (foreground)
+        geom_histogram(data = meth_plus,
+                       aes(x = start, y = after_stat(count),
+                           fill = "Methylation marks"),
+                       alpha = 0.6, binwidth = bin_width, position = "identity") +
+        # Add methylation percentage line (offset upward)
+        geom_line(data = plus_meth_pct,
+                  aes(x = bin_mid,
+                      y = max_count_plus * (1 + line_offset) + (meth_percentage / 100) * max_count_plus * 0.3,
+                      color = "Methylation %"),
+                  linewidth = 0.8) +
+        geom_point(data = plus_meth_pct,
+                   aes(x = bin_mid,
+                       y = max_count_plus * (1 + line_offset) + (meth_percentage / 100) * max_count_plus * 0.3,
+                       color = "Methylation %"),
+                   size = 0.5, alpha = 0.7) +
+        scale_fill_manual(values = c("Motif occurrences" = "#3498DB",
+                                     "Methylation marks" = "#27AE60"),
+                          name = "Feature") +
+        scale_color_manual(values = c("Methylation %" = "#E67E22"),
+                           name = "") +
+        labs(title = "Density Distribution with Methylation Rate: + Strand",
+             subtitle = paste0("Motif: ", motif_pattern, " (", bin_width/1000, "kb bins)"),
+             x = "Genomic Position (bp)",
+             y = "Count per bin") +
+        theme_minimal() +
+        theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+              plot.subtitle = element_text(hjust = 0.5, size = 11),
+              legend.position = "top") +
+        scale_x_continuous(labels = scales::comma) +
+        # Extend y-axis to show the lifted line
+        scale_y_continuous(
+            labels = scales::comma,
+            limits = c(0, max_count_plus * (1 + line_offset + 0.35))
+        )
+
+    fN <- paste(project,"_",desc,"_",motif_pattern, "_density_overlay_plus_strand.png", sep="")
+    ggsave(fN, p5, width = 14, height = 6, dpi = 300)
+    print(p5)
+
+    # Create density overlay for - strand using histograms
+    max_count_minus <- max(c(
+        hist(motif_minus$position, breaks = breaks_seq, plot = FALSE)$counts,
+        hist(meth_minus$start, breaks = breaks_seq, plot = FALSE)$counts
+    ))
+
+    p6 <- ggplot() +
+        # Motif histogram (background)
+        geom_histogram(data = motif_minus,
+                       aes(x = position, y = after_stat(count),
+                           fill = "Motif occurrences"),
+                       alpha = 0.4, binwidth = bin_width, position = "identity") +
+        # Methylation histogram (foreground)
+        geom_histogram(data = meth_minus,
+                       aes(x = start, y = after_stat(count),
+                           fill = "Methylation marks"),
+                       alpha = 0.6, binwidth = bin_width, position = "identity") +
+        # Add methylation percentage line (offset upward)
+        geom_line(data = minus_meth_pct,
+                  aes(x = bin_mid,
+                      y = max_count_minus * (1 + line_offset) + (meth_percentage / 100) * max_count_minus * 0.3,
+                      color = "Methylation %"),
+                  linewidth = 0.8) +
+        geom_point(data = minus_meth_pct,
+                   aes(x = bin_mid,
+                       y = max_count_minus * (1 + line_offset) + (meth_percentage / 100) * max_count_minus * 0.3,
+                       color = "Methylation %"),
+                   size = 0.5, alpha = 0.7) +
+        scale_fill_manual(values = c("Motif occurrences" = "#3498DB",
+                                     "Methylation marks" = "#E74C3C"),
+                          name = "Feature") +
+        scale_color_manual(values = c("Methylation %" = "#E67E22"),
+                           name = "") +
+        labs(title = "Density Distribution with Methylation Rate: - Strand",
+             subtitle = paste0("Motif: ", motif_pattern, " (", bin_width/1000, "kb bins)"),
+             x = "Genomic Position (bp)",
+             y = "Count per bin") +
+        theme_minimal() +
+        theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+              plot.subtitle = element_text(hjust = 0.5, size = 11),
+              legend.position = "top") +
+        scale_x_continuous(labels = scales::comma) +
+        # Extend y-axis to show the lifted line
+        scale_y_continuous(
+            labels = scales::comma,
+            limits = c(0, max_count_minus * (1 + line_offset + 0.35))
+        )
+
+    fN <- paste(project,"_",desc,"_",motif_pattern, "_density_overlay_minus_strand.png", sep="")
+    ggsave(fN, p6, width = 14, height = 6, dpi = 300)
+    print(p6)
+
+    # Combined density plot (both strands) using histograms
+    # Prepare combined data
+    motif_all_labeled <- all_motifs %>%
+        mutate(type = "Motif occurrences")
+    meth_all_labeled <- meth_data %>%
+        rename(position = start) %>%
+        mutate(type = "Methylation marks")
+
+    p7 <- ggplot() +
+        geom_histogram(data = motif_all_labeled,
+                       aes(x = position, y = after_stat(count),
+                           fill = type),
+                       alpha = 0.4, binwidth = bin_width, position = "identity") +
+        geom_histogram(data = meth_all_labeled,
+                       aes(x = position, y = after_stat(count),
+                           fill = type),
+                       alpha = 0.6, binwidth = bin_width, position = "identity") +
+        facet_wrap(~strand, ncol = 1) +
+        scale_fill_manual(values = c("Motif occurrences" = "#3498DB",
+                                     "Methylation marks" = "#9B59B6"),
+                          name = "Feature") +
+        labs(title = "Density Distribution: Both Strands",
+             subtitle = paste0("Motif: ", motif_pattern, " (", bin_width/1000, "kb bins)"),
+             x = "Genomic Position (bp)",
+             y = "Count per bin") +
+        theme_minimal() +
+        theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+              plot.subtitle = element_text(hjust = 0.5, size = 11),
+              legend.position = "top") +
+        scale_x_continuous(labels = scales::comma)
+
+    fN <- paste(project,"_",desc,"_",motif_pattern, "_density_overlay_both_strands.png", sep="")
+    ggsave(fN, p7, width = 14, height = 8, dpi = 300)
+    print(p7)
+
+    cat("Density overlay plots generated!\n")
+}
+
 
 # ============================================================================
 # 7. EXPORT RESULTS
