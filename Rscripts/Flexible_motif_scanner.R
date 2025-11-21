@@ -101,7 +101,24 @@ genome_length
 # 1. LOAD DATA
 # ============================================================================
 
-
+# ============================================================================
+# IUPAC CODE REFERENCE
+# ============================================================================
+# A = Adenine
+# C = Cytosine
+# G = Guanine
+# T = Thymine
+# R = A or G (puRine)
+# Y = C or T (pYrimidine)
+# S = G or C (Strong)
+# W = A or T (Weak)
+# K = G or T (Keto)
+# M = A or C (aMino)
+# B = C, G, or T (not A)
+# D = A, G, or T (not C)
+# H = A, C, or T (not G)
+# V = A, C, or G (not T)
+# N = any base
 
 # CHANGE THIS TO YOUR DESIRED MOTIF:
 motif_pattern <- "RVANNNNNNNTBY"
